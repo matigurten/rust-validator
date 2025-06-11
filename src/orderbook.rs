@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum Action {
@@ -35,8 +34,8 @@ pub struct PriceLevel {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct OrderBook {
     pub symbol: String,
-    pub bids: BTreeMap<i64, PriceLevel>,  // Using i64 for price to avoid floating point comparisons
-    pub asks: BTreeMap<i64, PriceLevel>,  // Using i64 for price to avoid floating point comparisons
+    pub bids: Vec<PriceLevel>,
+    pub asks: Vec<PriceLevel>,
     pub last_update: u128,
 }
 
@@ -52,8 +51,8 @@ impl OrderBook {
     pub fn new(symbol: String) -> Self {
         OrderBook {
             symbol,
-            bids: BTreeMap::new(),
-            asks: BTreeMap::new(),
+            bids: Vec::new(),
+            asks: Vec::new(),
             last_update: 0,
         }
     }
@@ -66,16 +65,37 @@ impl OrderBook {
 
         // Convert price to i64 for efficient comparison
         let price_key = (order.price * 1_000_000.0) as i64;
-        
-        // Find or create price level
-        let price_level = price_levels.entry(price_key).or_insert_with(|| PriceLevel {
-            price: order.price,
-            total_amount: 0,
-            orders: Vec::with_capacity(1), // Pre-allocate for better performance
-        });
 
-        price_level.orders.push(order.clone());
-        price_level.total_amount += order.amount;
+        // Find or create price level
+        let price_level = price_levels
+            .iter_mut()
+            .find(|pl| (pl.price * 1_000_000.0) as i64 == price_key);
+        match price_level {
+            Some(pl) => {
+                pl.orders.push(order.clone());
+                pl.total_amount += order.amount;
+            }
+            None => {
+                price_levels.push(PriceLevel {
+                    price: order.price,
+                    total_amount: order.amount,
+                    orders: vec![order.clone()],
+                });
+            }
+        }
+
+        // After updating bids/asks, remove crossing orders
+        self.bids
+            .sort_by(|a, b| b.price.partial_cmp(&a.price).unwrap());
+        self.asks
+            .sort_by(|a, b| a.price.partial_cmp(&b.price).unwrap());
+        // Remove crossing: bids >= best ask, asks <= best bid
+        if let (Some(best_ask), Some(best_bid)) = (self.asks.first(), self.bids.first()) {
+            let best_ask_price = best_ask.price;
+            let best_bid_price = best_bid.price;
+            self.bids.retain(|b| b.price < best_ask_price);
+            self.asks.retain(|a| a.price > best_bid_price);
+        }
         self.last_update = order.timestamp;
     }
 
@@ -86,16 +106,29 @@ impl OrderBook {
         };
 
         let price_key = (order.price * 1_000_000.0) as i64;
-        
-        if let Some(price_level) = price_levels.get_mut(&price_key) {
-            if let Some(pos) = price_level.orders.iter().position(|o| o.id == order.id) {
-                let cancelled_order = price_level.orders.remove(pos);
-                price_level.total_amount -= cancelled_order.amount;
-                
-                // Remove price level if empty
-                if price_level.orders.is_empty() {
-                    price_levels.remove(&price_key);
+
+        // Find the index of the price level to remove the order from
+        if let Some(idx) = price_levels
+            .iter()
+            .position(|pl| (pl.price * 1_000_000.0) as i64 == price_key)
+        {
+            // Remove the order from the orders vector
+            let mut remove_price_level = false;
+            if let Some(pos) = price_levels[idx].orders.iter().position(|o| o.id == order.id) {
+                let cancelled_order = price_levels[idx].orders.remove(pos);
+                price_levels[idx].total_amount -= cancelled_order.amount;
+
+                // Mark for removal if no orders left at this price level
+                if price_levels[idx].orders.is_empty() {
+                    remove_price_level = true;
                 }
+            }
+            // Remove the price level if needed (after mutable borrow ends)
+            if remove_price_level {
+                let price = price_levels[idx].price;
+                // Drop all previous borrows before calling retain
+                drop(idx);
+                price_levels.retain(|pl| pl.price != price);
             }
         }
         self.last_update = order.timestamp;
@@ -103,16 +136,14 @@ impl OrderBook {
 
     pub fn get_book_update(&self) -> BookUpdate {
         // Convert BTreeMap to Vec efficiently
-        let bids: Vec<PriceLevel> = self.bids
+        let bids: Vec<PriceLevel> = self
+            .bids
             .iter()
             .rev() // Reverse for bids (highest first)
-            .map(|(_, pl)| pl.clone())
+            .map(|pl| pl.clone())
             .collect();
-            
-        let asks: Vec<PriceLevel> = self.asks
-            .iter()
-            .map(|(_, pl)| pl.clone())
-            .collect();
+
+        let asks: Vec<PriceLevel> = self.asks.iter().map(|pl| pl.clone()).collect();
 
         BookUpdate {
             symbol: self.symbol.clone(),

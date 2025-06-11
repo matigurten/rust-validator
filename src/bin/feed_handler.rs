@@ -12,7 +12,7 @@ mod proto {
 #[tokio::main]
 async fn main() {
     let nc = async_nats::connect("localhost:4222").await.expect("Failed to connect to NATS");
-    let symbols = ["AAPL", "TSLA"];
+    let symbols = ["TSLA"];
     let actions = [proto::Action::Buy, proto::Action::Sell];
     let order_types = [proto::OrderType::Market, proto::OrderType::Limit, proto::OrderType::Cancel];
     let mut rng = rand::thread_rng();
