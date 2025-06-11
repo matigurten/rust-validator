@@ -6,6 +6,7 @@ pub struct NatsClient {
     client: nats::Connection,
 }
 
+#[allow(dead_code)]
 impl NatsClient {
     pub fn new(url: &str) -> Result<Self, std::io::Error> {
         let client = nats::connect(url)?;

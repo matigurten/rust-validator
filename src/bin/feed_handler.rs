@@ -2,7 +2,7 @@ use nats;
 use rand::seq::SliceRandom;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
-use my_rust_project::utils::now_nanos;
+use rust_validator::utils::now_nanos;
 use std::thread;
 use std::time::Duration;
 
