@@ -1,0 +1,8 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+COPY feed_publisher.py .
+
+RUN pip install nats-py
+
+CMD ["python", "feed_publisher.py"]

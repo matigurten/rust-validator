@@ -1,0 +1,17 @@
+version: '3'
+services:
+  nats:
+    image: nats:latest
+    ports:
+      - "4222:4222"  # Client connections
+      - "8222:8222"  # HTTP monitoring
+    volumes:
+      - ./nats-data:/data  # Persist data
+    command: --js --sd /data  # Enable JetStream and store data in /data 
+
+  feed-handler:
+    build:
+      context: .
+      dockerfile: Dockerfile.feed
+    depends_on:
+      - nats 
