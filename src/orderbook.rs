@@ -49,7 +49,7 @@ pub struct BookUpdate {
 
 impl OrderBook {
     pub fn new(symbol: String) -> Self {
-        OrderBook {
+        Self {
             symbol,
             bids: Vec::new(),
             asks: Vec::new(),
@@ -63,10 +63,8 @@ impl OrderBook {
             Action::Sell => &mut self.asks,
         };
 
-        // Convert price to i64 for efficient comparison
         let price_key = (order.price * 1_000_000.0) as i64;
 
-        // Find or create price level
         let price_level = price_levels
             .iter_mut()
             .find(|pl| (pl.price * 1_000_000.0) as i64 == price_key);
@@ -84,82 +82,132 @@ impl OrderBook {
             }
         }
 
-        // After updating bids/asks, remove crossing orders
         self.bids
             .sort_by(|a, b| b.price.partial_cmp(&a.price).unwrap());
         self.asks
             .sort_by(|a, b| a.price.partial_cmp(&b.price).unwrap());
-        // Remove crossing: bids >= best ask, asks <= best bid
-        if let (Some(best_ask), Some(best_bid)) = (self.asks.first(), self.bids.first()) {
-            let best_ask_price = best_ask.price;
-            let best_bid_price = best_bid.price;
-            self.bids.retain(|b| b.price < best_ask_price);
-            self.asks.retain(|a| a.price > best_bid_price);
-        }
-        self.last_update = order.timestamp;
-    }
 
-    pub fn cancel_order(&mut self, order: &Order) {
-        let price_levels = match order.action {
-            Action::Buy => &mut self.bids,
-            Action::Sell => &mut self.asks,
+        let mut book_changed = false;
+        let (crossed, trades) = match order.action {
+            Action::Buy => {
+                let mut remaining = order.amount;
+                let mut trades = Vec::new();
+                let mut to_remove = Vec::new();
+
+                for ask in &mut self.asks {
+                    if ask.price <= order.price && remaining > 0 {
+                        let mut matched_orders = Vec::new();
+                        let mut ask_remaining = ask.total_amount;
+                        let mut i = 0;
+                        while i < ask.orders.len() && remaining > 0 {
+                            let ask_order = &mut ask.orders[i];
+                            let fill = remaining.min(ask_order.amount);
+                            trades.push(format!(
+                                "TRADE: Buy {} {} @ {:.2} matched with Sell order {} for {}",
+                                fill, order.symbol, ask.price, ask_order.id, fill
+                            ));
+                            ask_order.amount -= fill;
+                            ask_remaining -= fill;
+                            remaining -= fill;
+                            if ask_order.amount == 0 {
+                                matched_orders.push(i);
+                            } else {
+                                i += 1;
+                            }
+                        }
+                        for &idx in matched_orders.iter().rev() {
+                            ask.orders.remove(idx);
+                        }
+                        ask.total_amount = ask_remaining;
+                        if ask.orders.is_empty() {
+                            to_remove.push(ask.price);
+                        }
+                        if remaining == 0 {
+                            break;
+                        }
+                    }
+                }
+                self.asks.retain(|a| !to_remove.contains(&a.price));
+                if !trades.is_empty() {
+                    book_changed = true;
+                }
+                (remaining < order.amount, trades)
+            }
+            Action::Sell => {
+                let mut remaining = order.amount;
+                let mut trades = Vec::new();
+                let mut to_remove = Vec::new();
+
+                for bid in &mut self.bids {
+                    if bid.price >= order.price && remaining > 0 {
+                        let mut matched_orders = Vec::new();
+                        let mut bid_remaining = bid.total_amount;
+                        let mut i = 0;
+                        while i < bid.orders.len() && remaining > 0 {
+                            let bid_order = &mut bid.orders[i];
+                            let fill = remaining.min(bid_order.amount);
+                            trades.push(format!(
+                                "TRADE: Sell {} {} @ {:.2} matched with Buy order {} for {}",
+                                fill, order.symbol, bid.price, bid_order.id, fill
+                            ));
+                            bid_order.amount -= fill;
+                            bid_remaining -= fill;
+                            remaining -= fill;
+                            if bid_order.amount == 0 {
+                                matched_orders.push(i);
+                            } else {
+                                i += 1;
+                            }
+                        }
+                        for &idx in matched_orders.iter().rev() {
+                            bid.orders.remove(idx);
+                        }
+                        bid.total_amount = bid_remaining;
+                        if bid.orders.is_empty() {
+                            to_remove.push(bid.price);
+                        }
+                        if remaining == 0 {
+                            break;
+                        }
+                    }
+                }
+                self.bids.retain(|b| !to_remove.contains(&b.price));
+                if !trades.is_empty() {
+                    book_changed = true;
+                }
+                (remaining < order.amount, trades)
+            }
         };
 
-        let price_key = (order.price * 1_000_000.0) as i64;
-
-        // Find the index of the price level to remove the order from
-        if let Some(idx) = price_levels
-            .iter()
-            .position(|pl| (pl.price * 1_000_000.0) as i64 == price_key)
-        {
-            // Remove the order from the orders vector
-            let mut remove_price_level = false;
-            if let Some(pos) = price_levels[idx].orders.iter().position(|o| o.id == order.id) {
-                let cancelled_order = price_levels[idx].orders.remove(pos);
-                price_levels[idx].total_amount -= cancelled_order.amount;
-
-                // Mark for removal if no orders left at this price level
-                if price_levels[idx].orders.is_empty() {
-                    remove_price_level = true;
-                }
-            }
-            // Remove the price level if needed (after mutable borrow ends)
-            if remove_price_level {
-                let price = price_levels[idx].price;
-                // Drop all previous borrows before calling retain
-                drop(idx);
-                price_levels.retain(|pl| pl.price != price);
+        if crossed {
+            for trade in trades {
+                println!("{}", trade);
             }
         }
+
         self.last_update = order.timestamp;
+
+        // Print top of book for any symbol if the book changed
+        if book_changed {
+            let (bid_amt, bid_price) = self.bids.first()
+                .map(|b| (b.total_amount, b.price))
+                .unwrap_or((0, 0.0));
+            let (ask_price, ask_amt) = self.asks.first()
+                .map(|a| (a.price, a.total_amount))
+                .unwrap_or((0.0, 0));
+            println!(
+                "{} BOOK TOP | {:>5} {:>8.2} | {:<8.2} {:<5}",
+                self.symbol, bid_amt, bid_price, ask_price, ask_amt
+            );
+        }
     }
 
     pub fn get_book_update(&self) -> BookUpdate {
-        // Convert BTreeMap to Vec efficiently
-        let bids: Vec<PriceLevel> = self
-            .bids
-            .iter()
-            .rev() // Reverse for bids (highest first)
-            .map(|pl| pl.clone())
-            .collect();
-
-        let asks: Vec<PriceLevel> = self.asks.iter().map(|pl| pl.clone()).collect();
-
         BookUpdate {
             symbol: self.symbol.clone(),
-            bids,
-            asks,
+            bids: self.bids.clone(),
+            asks: self.asks.clone(),
             last_update: self.last_update,
         }
     }
-}
-
-pub fn validate(order: &Order) -> Result<(), String> {
-    if order.price <= 0.0 {
-        return Err("Invalid price".into());
-    }
-    if order.amount <= 0 {
-        return Err("Invalid amount".into());
-    }
-    Ok(())
 }

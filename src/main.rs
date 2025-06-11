@@ -76,8 +76,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .map(|last| is_important_update(&update, last))
             .unwrap_or(true);
 
-        if should_publish && order.symbol == "TSLA" {
-            // Print the current top of the book for TSLA
+        if should_publish {
+            // Print the current top of the book
             let best_bid = update.bids.first().map(|b| format!("{:.2} x {}", b.price, b.total_amount)).unwrap_or("None".to_string());
             let best_ask = update.asks.first().map(|a| format!("{:.2} x {}", a.price, a.total_amount)).unwrap_or("None".to_string());
             println!("TSLA BOOK TOP | Bid: {} | Ask: {}", best_bid, best_ask);
