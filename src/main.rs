@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use rust_validator::orderbook::{Order, OrderBook, OrderType, BookUpdate, Action};
-use rust_validator::messaging::NatsClient;
 use rust_validator::utils::now_nanos;
 use prost::Message;
+use futures_util::StreamExt;
 
 mod proto {
     include!(concat!(env!("OUT_DIR"), "/order.rs"));
@@ -25,20 +25,19 @@ fn is_important_update(new: &BookUpdate, last: &BookUpdate) -> bool {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut order_books: HashMap<String, OrderBook> = HashMap::with_capacity(INITIAL_CAPACITY);
     let mut last_updates: HashMap<String, BookUpdate> = HashMap::with_capacity(INITIAL_CAPACITY);
-    let client = NatsClient::new("localhost:4222")?;
-    let subscription = client.subscribe("market_data")?;
+    let client = async_nats::connect("localhost:4222").await?;
+    let mut subscription = client.subscribe("market_data".to_string()).await?;
 
     println!("Validator started. Waiting for market data...");
 
-    for message in subscription.messages() {
+    while let Some(message) = subscription.next().await {
         let start = now_nanos();
-        
         // Try to decode the message data
-        let proto_order = match proto::Order::decode(message.data.as_ref()) {
+        let proto_order = match proto::Order::decode(message.payload.as_ref()) {
             Ok(order) => order,
             Err(e) => {
                 eprintln!("Failed to decode message: {}", e);
-                eprintln!("Raw message data: {:?}", message.data);
+                eprintln!("Raw message data: {:?}", message.payload);
                 continue;
             }
         };
@@ -78,22 +77,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .unwrap_or(true);
 
         if should_publish {
-            if let Err(e) = client.publish_book_update("book_updates", &update) {
+            // Encode the prost-generated proto::BookUpdate, not the domain BookUpdate
+            let proto_update = rust_validator::messaging::proto::BookUpdate {
+                symbol: update.symbol.clone(),
+                bids: update.bids.iter().map(|pl| rust_validator::messaging::proto::PriceLevel {
+                    price: pl.price,
+                    amount: pl.total_amount,
+                }).collect(),
+                asks: update.asks.iter().map(|pl| rust_validator::messaging::proto::PriceLevel {
+                    price: pl.price,
+                    amount: pl.total_amount,
+                }).collect(),
+                timestamp: update.last_update as u64,
+            };
+            let mut buf = Vec::with_capacity(128);
+            prost::Message::encode(&proto_update, &mut buf).unwrap();
+            if let Err(e) = client.publish("book_updates".into(), buf.into()).await {
                 eprintln!("Failed to publish book update: {}", e);
             } else {
                 last_updates.insert(order.symbol.clone(), update);
             }
         }
 
-        let latency = now_nanos() - start;
+        let inter_service_latency_us = (start - order.timestamp) as i32 / 1000;
+        let end = now_nanos();
+        let processing_time_us = (end - start) as i32 / 1000;
+        
         println!(
-            "Processed order: {} {:?} {} @ {} (id: {}) in {:.3} ms",
-            order.symbol,
-            order.action, // Use {:?} for Debug formatting
-            order.amount,
+            "Order id {}: {:<4} {:<4} {:>4} @ {:.2} | inter-service latency: {} us | processing: {} us",
+            &order.id,
+            &order.symbol.chars().take(4).collect::<String>(),
+            format!("{:<4}", format!("{:?}", order.action)).chars().take(4).collect::<String>(),
+            format!("{:>4}", order.amount),
             order.price,
-            order.id,
-            latency as f64 / 1_000_000.0
+            inter_service_latency_us,
+            processing_time_us
         );
     }
 
