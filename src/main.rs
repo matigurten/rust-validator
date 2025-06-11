@@ -32,7 +32,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     for message in subscription.messages() {
         let start = now_nanos();
-        
         // Try to decode the message data
         let proto_order = match proto::Order::decode(message.data.as_ref()) {
             Ok(order) => order,
@@ -81,19 +80,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Err(e) = client.publish_book_update("book_updates", &update) {
                 eprintln!("Failed to publish book update: {}", e);
             } else {
-                last_updates.insert(order.symbol.clone(), update);
+                last_updates.insert(order.symbol.clone(), update.clone());
             }
         }
+        let end = now_nanos();
 
-        let latency = now_nanos() - start;
+        let latency_us = (start - order.timestamp) as i32 / 1000;
+        let validation_time_us = (end - start) as i32 / 1000;
+        
         println!(
-            "Processed order: {} {:?} {} @ {} (id: {}) in {:.3} ms",
-            order.symbol,
-            order.action, // Use {:?} for Debug formatting
-            order.amount,
+            "Order id {}: {:<4} {:<4} {:>4} @ {:.2} | latency: {} us | validation: {} us",
+            &order.id,
+            &order.symbol.chars().take(4).collect::<String>(),
+            format!("{:<4}", format!("{:?}", order.action)).chars().take(4).collect::<String>(),
+            format!("{:>4}", order.amount),
             order.price,
-            order.id,
-            latency as f64 / 1_000_000.0
+            latency_us,
+            validation_time_us
         );
     }
 
