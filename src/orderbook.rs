@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum Action {
@@ -18,7 +19,7 @@ pub struct Order {
     pub id: u128,
     pub symbol: String,
     pub price: f64,
-    pub amount: f64,
+    pub amount: i32,
     pub action: Action,
     pub order_type: OrderType,
     pub timestamp: u128,
@@ -27,15 +28,15 @@ pub struct Order {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct PriceLevel {
     pub price: f64,
-    pub total_amount: f64,
+    pub total_amount: i32,
     pub orders: Vec<Order>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct OrderBook {
     pub symbol: String,
-    pub bids: Vec<PriceLevel>,  // Sorted by price (highest first)
-    pub asks: Vec<PriceLevel>,  // Sorted by price (lowest first)
+    pub bids: BTreeMap<i64, PriceLevel>,  // Using i64 for price to avoid floating point comparisons
+    pub asks: BTreeMap<i64, PriceLevel>,  // Using i64 for price to avoid floating point comparisons
     pub last_update: u128,
 }
 
@@ -51,8 +52,8 @@ impl OrderBook {
     pub fn new(symbol: String) -> Self {
         OrderBook {
             symbol,
-            bids: Vec::new(),
-            asks: Vec::new(),
+            bids: BTreeMap::new(),
+            asks: BTreeMap::new(),
             last_update: 0,
         }
     }
@@ -63,24 +64,15 @@ impl OrderBook {
             Action::Sell => &mut self.asks,
         };
 
+        // Convert price to i64 for efficient comparison
+        let price_key = (order.price * 1_000_000.0) as i64;
+        
         // Find or create price level
-        let price_level = match price_levels.iter_mut().find(|pl| pl.price == order.price) {
-            Some(pl) => pl,
-            None => {
-                let new_pl = PriceLevel {
-                    price: order.price,
-                    total_amount: 0.0,
-                    orders: Vec::new(),
-                };
-                price_levels.push(new_pl);
-                // Sort price levels
-                match order.action {
-                    Action::Buy => price_levels.sort_by(|a, b| b.price.partial_cmp(&a.price).unwrap()),
-                    Action::Sell => price_levels.sort_by(|a, b| a.price.partial_cmp(&b.price).unwrap()),
-                }
-                price_levels.last_mut().unwrap()
-            }
-        };
+        let price_level = price_levels.entry(price_key).or_insert_with(|| PriceLevel {
+            price: order.price,
+            total_amount: 0,
+            orders: Vec::with_capacity(1), // Pre-allocate for better performance
+        });
 
         price_level.orders.push(order.clone());
         price_level.total_amount += order.amount;
@@ -93,16 +85,16 @@ impl OrderBook {
             Action::Sell => &mut self.asks,
         };
 
-        if let Some(price_level) = price_levels.iter_mut().find(|pl| pl.price == order.price) {
+        let price_key = (order.price * 1_000_000.0) as i64;
+        
+        if let Some(price_level) = price_levels.get_mut(&price_key) {
             if let Some(pos) = price_level.orders.iter().position(|o| o.id == order.id) {
                 let cancelled_order = price_level.orders.remove(pos);
                 price_level.total_amount -= cancelled_order.amount;
                 
                 // Remove price level if empty
                 if price_level.orders.is_empty() {
-                    if let Some(pos) = price_levels.iter().position(|pl| pl.price == order.price) {
-                        price_levels.remove(pos);
-                    }
+                    price_levels.remove(&price_key);
                 }
             }
         }
@@ -110,10 +102,22 @@ impl OrderBook {
     }
 
     pub fn get_book_update(&self) -> BookUpdate {
+        // Convert BTreeMap to Vec efficiently
+        let bids: Vec<PriceLevel> = self.bids
+            .iter()
+            .rev() // Reverse for bids (highest first)
+            .map(|(_, pl)| pl.clone())
+            .collect();
+            
+        let asks: Vec<PriceLevel> = self.asks
+            .iter()
+            .map(|(_, pl)| pl.clone())
+            .collect();
+
         BookUpdate {
             symbol: self.symbol.clone(),
-            bids: self.bids.clone(),
-            asks: self.asks.clone(),
+            bids,
+            asks,
             last_update: self.last_update,
         }
     }
@@ -123,8 +127,8 @@ pub fn validate(order: &Order) -> Result<(), String> {
     if order.price <= 0.0 {
         return Err("Invalid price".into());
     }
-    if order.amount <= 0.0 {
+    if order.amount <= 0 {
         return Err("Invalid amount".into());
     }
     Ok(())
-} 
+}

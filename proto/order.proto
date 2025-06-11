@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package order;
+
+enum Action {
+    BUY = 0;
+    SELL = 1;
+}
+
+enum OrderType {
+    MARKET = 0;
+    LIMIT = 1;
+    CANCEL = 2;
+}
+
+message PriceLevel {
+    double price = 1;
+    int32 amount = 2;
+}
+
+message Order {
+    uint64 id = 1;
+    string symbol = 2;
+    double price = 3;
+    int32 amount = 4;
+    Action action = 5;
+    OrderType order_type = 6;
+    uint64 timestamp = 7;
+}
+
+message BookUpdate {
+    string symbol = 1;
+    repeated PriceLevel bids = 2;
+    repeated PriceLevel asks = 3;
+    uint64 timestamp = 4;
+}
