@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum Action {
@@ -127,34 +128,4 @@ pub fn validate(order: &Order) -> Result<(), String> {
         return Err("Invalid amount".into());
     }
     Ok(())
-}
-
-pub fn is_important_update(prev: &Option<BookUpdate>, new: &BookUpdate) -> bool {
-    // Send update if any price level changed by more than 0.1%
-    if let Some(prev) = prev {
-        // Check bids
-        for level in &new.bids {
-            if let Some(prev_level) = prev.bids.iter().find(|l| l.price == level.price) {
-                if (level.total_amount - prev_level.total_amount).abs() / prev_level.total_amount > 0.001 {
-                    return true;
-                }
-            } else {
-                return true; // New price level
-            }
-        }
-
-        // Check asks
-        for level in &new.asks {
-            if let Some(prev_level) = prev.asks.iter().find(|l| l.price == level.price) {
-                if (level.total_amount - prev_level.total_amount).abs() / prev_level.total_amount > 0.001 {
-                    return true;
-                }
-            } else {
-                return true; // New price level
-            }
-        }
-        false
-    } else {
-        true
-    }
 } 

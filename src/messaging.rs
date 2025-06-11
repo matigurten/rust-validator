@@ -1,9 +1,9 @@
-use nats::Connection;
+use nats;
 use serde_json;
 use crate::orderbook::{Order, BookUpdate};
 
 pub struct NatsClient {
-    client: Connection,
+    client: nats::Connection,
 }
 
 impl NatsClient {

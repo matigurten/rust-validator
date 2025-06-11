@@ -1,14 +1,14 @@
-use serde::{Deserialize, Serialize};
-use serde_json;
-use nats;
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use std::time::Instant;
+use serde_json;
+
 mod utils;
 mod orderbook;
 mod messaging;
 
-use orderbook::{Order, OrderBook, OrderType, BookUpdate, validate};
-use messaging::NatsClient;
+use crate::orderbook::{Order, OrderBook, OrderType, BookUpdate, validate};
+use crate::messaging::NatsClient;
+use crate::utils::now_nanos;
 
 fn is_important_update(last_update: &BookUpdate, new_update: &BookUpdate) -> bool {
     if last_update.bids.is_empty() && last_update.asks.is_empty() {
@@ -29,7 +29,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut last_updates: HashMap<String, BookUpdate> = HashMap::new();
     println!("Validator started. Listening for orders...");
     for message in subscription.messages() {
-        let start = Instant::now();
+        let start = now_nanos();
         let order: Order = serde_json::from_slice(&message.data)?;
         if !order_books.contains_key(&order.symbol) {
             order_books.insert(order.symbol.clone(), OrderBook::new(order.symbol.clone()));
@@ -52,8 +52,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             nats_client.publish_book_update("book_updates", &book_update)?;
             last_updates.insert(order.symbol.clone(), book_update);
         }
-        let latency = start.elapsed();
-        println!("Latency: {:.3} ms", latency.as_secs_f64() * 1000.0);
+        let latency = now_nanos() - start;
+        println!("Latency: {:.3} ms", latency as f64 / 1_000_000.0);
     }
     Ok(())
 }
