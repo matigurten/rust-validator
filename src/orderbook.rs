@@ -48,7 +48,7 @@ pub struct BookUpdate {
 }
 
 /// Global flag to control order processing
-pub static mut PROCESS_ORDER: bool = false;
+pub static mut PROCESS_ORDER: bool = true;
 
 impl OrderBook {
     pub fn new(symbol: String) -> Self {

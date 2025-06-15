@@ -37,6 +37,13 @@ fn main() -> std::io::Result<()> {
             .open(&file_path)?;
         let mut mmap = unsafe { MmapOptions::new().map_mut(&file)? };
         let mut last_id = 0u64;
+        // Collect command-line arguments for instrument filtering
+        let args: Vec<String> = std::env::args().skip(1).collect();
+        let filter_instruments: Option<std::collections::HashSet<String>> = if args.is_empty() {
+            None
+        } else {
+            Some(args.into_iter().collect())
+        };
         loop {
             // Read the length of the message (first 4 bytes)
             let len = u32::from_le_bytes([mmap[0], mmap[1], mmap[2], mmap[3]]) as usize;
@@ -46,13 +53,7 @@ fn main() -> std::io::Result<()> {
                 if let Ok(proto_order) = proto::Order::decode(msg_bytes) {
                     // Only print if it's a new order
                     if proto_order.id != last_id {
-                        if proto_order.instrument != "TSLA" {
-                            // Skip orders not for the interesting instrument
-                            last_id = proto_order.id;
-                            let len_ptr = &mut mmap[0..4];
-                            len_ptr.copy_from_slice(&0u32.to_le_bytes());
-                            continue;
-                        }
+                        // No instrument filter: print all orders for now
                         let order = Order {
                             id: proto_order.id as u128,
                             price: proto_order.price,
@@ -71,6 +72,15 @@ fn main() -> std::io::Result<()> {
                             timestamp: proto_order.timestamp as u128,
                             instrument: proto_order.instrument.clone(),
                         };
+                        // Filter by instrument if a filter is set
+                        if let Some(ref filter) = filter_instruments {
+                            if !filter.contains(&order.instrument) {
+                                last_id = proto_order.id;
+                                let len_ptr = &mut mmap[0..4];
+                                len_ptr.copy_from_slice(&0u32.to_le_bytes());
+                                continue;
+                            }
+                        }
                         let now = now_nanos();
                         let latency_us = (now as i64 - order.timestamp as i64) / 1000;
                         // Change the log output to match the feed_handler format

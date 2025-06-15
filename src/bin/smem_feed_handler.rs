@@ -60,12 +60,18 @@ fn main() -> std::io::Result<()> {
     // Memory-map the file
     let mut mmap = unsafe { MmapOptions::new().map_mut(&file)? };
 
-    let symbols = ["TSLA"];
+    let instruments = ["TSLA", "AAPL"];
+    // Create a simulator for each instrument with different mean prices
+    let mut simulators = std::collections::HashMap::new();
+    simulators.insert("TSLA", InstrumentSimulator::new(300.0, 0.2));
+    simulators.insert("AAPL", InstrumentSimulator::new(180.0, 0.15));
     let actions = [proto::Action::Buy, proto::Action::Sell];
-    let mut simulator = InstrumentSimulator::new(300.0, 0.2);
     let mut rng = rand::thread_rng();
 
     loop {
+        // Randomly pick an instrument for this order
+        let instrument = instruments.choose(&mut rng).unwrap();
+        let simulator = simulators.get_mut(instrument).unwrap();
         // Set to 50% chance for cancel orders for testing
         let order_type = if rng.gen_bool(0.5) {
             proto::OrderType::Limit
@@ -107,8 +113,8 @@ fn main() -> std::io::Result<()> {
         if order_type == proto::OrderType::Limit || order_type == proto::OrderType::Cancel {
             let side = if is_buy { "Buy" } else { "Sell" };
             println!(
-                "TSLA: {:>3} \tLMT # {}: {:<4} {:>3} @ {:.1}",
-                order_type_str, order.id, side, amount, price
+                "{}: {:>3} \tLMT # {}: {:<4} {:>3} @ {:.1}",
+                instrument, order_type_str, order.id, side, amount, price
             );
         }
 
