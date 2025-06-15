@@ -1,0 +1,3 @@
+[2016] 2025/06/14 19:45:50.180619 [INF] Starting nats-server version 0.9.4
+[2016] 2025/06/14 19:45:50.180939 [INF] Listening for client connections on 0.0.0.0:4222
+[2016] 2025/06/14 19:45:50.180981 [FTL] Error listening on port: 0.0.0.0:4222, "listen tcp 0.0.0.0:4222: bind: address already in use"

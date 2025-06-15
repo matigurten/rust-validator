@@ -6,7 +6,7 @@ pub enum Action {
     Sell,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub enum OrderType {
     Market,
     Limit,
@@ -16,12 +16,12 @@ pub enum OrderType {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Order {
     pub id: u128,
-    pub symbol: String,
     pub price: f64,
     pub amount: i32,
     pub action: Action,
     pub order_type: OrderType,
     pub timestamp: u128,
+    pub instrument: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -47,6 +47,9 @@ pub struct BookUpdate {
     pub last_update: u128,
 }
 
+/// Global flag to control order processing
+pub static mut PROCESS_ORDER: bool = false;
+
 impl OrderBook {
     pub fn new(symbol: String) -> Self {
         Self {
@@ -57,7 +60,14 @@ impl OrderBook {
         }
     }
 
-    pub fn add_order(&mut self, order: &Order) {
+    pub fn add_order(&mut self, order: &Order) -> bool {
+        unsafe {
+            if !PROCESS_ORDER {
+                println!("{} ", self.symbol);
+                return false;
+            }
+        }
+
         let price_levels = match order.action {
             Action::Buy => &mut self.bids,
             Action::Sell => &mut self.asks,
@@ -104,7 +114,7 @@ impl OrderBook {
                             let fill = remaining.min(ask_order.amount);
                             trades.push(format!(
                                 "TRADE: Buy {} {} @ {:.2} matched with Sell order {} for {}",
-                                fill, order.symbol, ask.price, ask_order.id, fill
+                                fill, self.symbol, ask.price, ask_order.id, fill
                             ));
                             ask_order.amount -= fill;
                             ask_remaining -= fill;
@@ -148,7 +158,7 @@ impl OrderBook {
                             let fill = remaining.min(bid_order.amount);
                             trades.push(format!(
                                 "TRADE: Sell {} {} @ {:.2} matched with Buy order {} for {}",
-                                fill, order.symbol, bid.price, bid_order.id, fill
+                                fill, self.symbol, bid.price, bid_order.id, fill
                             ));
                             bid_order.amount -= fill;
                             bid_remaining -= fill;
@@ -184,30 +194,11 @@ impl OrderBook {
                 println!("{}", trade);
             }
         }
-
         self.last_update = order.timestamp;
-
-        // Print top of book for any symbol if the book changed
-        if book_changed {
-            let (bid_amt, bid_price) = self.bids.first()
-                .map(|b| (b.total_amount, b.price))
-                .unwrap_or((0, 0.0));
-            let (ask_price, ask_amt) = self.asks.first()
-                .map(|a| (a.price, a.total_amount))
-                .unwrap_or((0.0, 0));
-            println!(
-                "{} BOOK TOP | {:>5} {:>8.2} | {:<8.2} {:<5}",
-                self.symbol, bid_amt, bid_price, ask_price, ask_amt
-            );
-        }
+        book_changed
     }
 
-    pub fn get_book_update(&self) -> BookUpdate {
-        BookUpdate {
-            symbol: self.symbol.clone(),
-            bids: self.bids.clone(),
-            asks: self.asks.clone(),
-            last_update: self.last_update,
-        }
+    pub fn get_book_update(&self) -> &Self {
+        self
     }
 }

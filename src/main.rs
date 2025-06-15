@@ -58,7 +58,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     };
                     let order = Order {
                         id: proto_order.id as u128,
-                        symbol: proto_order.symbol,
                         price: proto_order.price,
                         amount: proto_order.amount,
                         action: match proto_order.action {
@@ -79,12 +78,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             }
                         },
                         timestamp: proto_order.timestamp as u128,
+                        instrument: proto_order.instrument.clone(),
                     };
-                    let book = order_books.entry(order.symbol.clone()).or_insert_with(|| OrderBook::new(order.symbol.clone()));
+                    let book = order_books.entry("TSLA".to_string()).or_insert_with(|| OrderBook::new("TSLA".to_string()));
                     book.add_order(&order);
                     let update = book.get_book_update();
                     let should_publish = last_updates
-                        .get(&order.symbol)
+                        .get("TSLA")
                         .map(|last| is_important_update(update, last))
                         .unwrap_or(true);
                     if should_publish {
@@ -93,7 +93,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         println!("TSLA BOOK TOP | Bid: {} | Ask: {}", best_bid, best_ask);
                     }
                     if should_publish {
-                        last_updates.insert(order.symbol.clone(), update.clone());
+                        last_updates.insert("TSLA".to_string(), update.clone());
                     }
                     let inter_service_latency_us = (start - order.timestamp) as i32 / 1000;
                     let end = now_nanos();
@@ -101,7 +101,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!(
                         "Order id {}: {:<4} {:<4} {:>4} @ {:.2} | inter-service latency: {} us | processing: {} us",
                         &order.id,
-                        &order.symbol.chars().take(4).collect::<String>(),
+                        &"TSLA".chars().take(4).collect::<String>(),
                         format!("{:<4}", format!("{:?}", order.action)).chars().take(4).collect::<String>(),
                         format!("{:>4}", order.amount),
                         order.price,
@@ -129,7 +129,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     };
                     let order = Order {
                         id: proto_order.id as u128,
-                        symbol: proto_order.symbol,
                         price: proto_order.price,
                         amount: proto_order.amount,
                         action: match proto_order.action {
@@ -150,12 +149,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             }
                         },
                         timestamp: proto_order.timestamp as u128,
+                        instrument: proto_order.instrument.clone(),
                     };
-                    let book = order_books.entry(order.symbol.clone()).or_insert_with(|| OrderBook::new(order.symbol.clone()));
+                    let book = order_books.entry("TSLA".to_string()).or_insert_with(|| OrderBook::new("TSLA".to_string()));
                     book.add_order(&order);
                     let update = book.get_book_update();
                     let should_publish = last_updates
-                        .get(&order.symbol)
+                        .get("TSLA")
                         .map(|last| is_important_update(update, last))
                         .unwrap_or(true);
                     if should_publish {
@@ -164,7 +164,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         println!("TSLA BOOK TOP | Bid: {} | Ask: {}", best_bid, best_ask);
                     }
                     if should_publish {
-                        last_updates.insert(order.symbol.clone(), update.clone());
+                        last_updates.insert("TSLA".to_string(), update.clone());
                     }
                     let inter_service_latency_us = (start - order.timestamp) as i32 / 1000;
                     let end = now_nanos();
@@ -172,7 +172,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!(
                         "Order id {}: {:<4} {:<4} {:>4} @ {:.2} | inter-service latency: {} us | processing: {} us",
                         &order.id,
-                        &order.symbol.chars().take(4).collect::<String>(),
+                        &"TSLA".chars().take(4).collect::<String>(),
                         format!("{:<4}", format!("{:?}", order.action)).chars().take(4).collect::<String>(),
                         format!("{:>4}", order.amount),
                         order.price,

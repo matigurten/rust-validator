@@ -1,6 +1,6 @@
 use async_nats;
 use prost::Message;
-use crate::orderbook::{Order, BookUpdate};
+use crate::orderbook::{Order, OrderBook};
 
 pub mod proto {
     include!(concat!(env!("OUT_DIR"), "/order.rs"));
@@ -20,28 +20,16 @@ impl NatsClient {
         self.client.subscribe(subject.to_string()).await.map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
     }
 
-    pub async fn publish_book_update(&self, subject: &str, update: &BookUpdate) -> Result<(), async_nats::Error> {
-        let proto_update = proto::BookUpdate {
-            symbol: update.symbol.clone(),
-            bids: update.bids.iter().map(|pl| proto::PriceLevel {
-                price: pl.price,
-                amount: pl.total_amount,
-            }).collect(),
-            asks: update.asks.iter().map(|pl| proto::PriceLevel {
-                price: pl.price,
-                amount: pl.total_amount,
-            }).collect(),
-            timestamp: update.last_update as u64,
-        };
-        let buf = proto_update.encode_to_vec();
-        self.client.publish(subject.into(), buf.into()).await?;
+    pub async fn publish_orderbook(&self, subject: &str, book: &OrderBook) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Serialize the OrderBook struct using serde_json for now
+        let json = serde_json::to_string(book)?;
+        self.client.publish(subject.into(), json.into()).await?;
         Ok(())
     }
 
     pub async fn publish_order(&self, subject: &str, order: &Order) -> Result<(), async_nats::Error> {
         let proto_order = proto::Order {
             id: order.id as u64,
-            symbol: order.symbol.clone(),
             price: order.price,
             amount: order.amount,
             action: match order.action {
@@ -54,6 +42,7 @@ impl NatsClient {
                 crate::orderbook::OrderType::Cancel => 2,
             },
             timestamp: order.timestamp as u64,
+            instrument: order.instrument.clone(),
         };
         let buf = proto_order.encode_to_vec();
         self.client.publish(subject.into(), buf.into()).await?;

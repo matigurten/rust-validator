@@ -20,12 +20,12 @@ message PriceLevel {
 
 message Order {
     uint64 id = 1;
-    string symbol = 2;
-    double price = 3;
-    int32 amount = 4;
-    Action action = 5;
-    OrderType order_type = 6;
-    uint64 timestamp = 7;
+    double price = 2;
+    int32 amount = 3;
+    Action action = 4;
+    OrderType order_type = 5;
+    uint64 timestamp = 6;
+    string instrument = 7;
 }
 
 message BookUpdate {
